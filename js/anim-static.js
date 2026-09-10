@@ -40,18 +40,20 @@
           '<div class="panel">' +
             '<p class="panel-t">Ai gửi LeaveGroup, khi nào?</p>' +
             '<table class="cmp" style="margin-top:6px;font-size:13px">' +
-              '<thead><tr><th></th><th style="color:var(--paper-2)">close() graceful</th><th style="color:var(--paper-2)">crash / kill -9</th></tr></thead>' +
+              '<thead><tr><th></th><th style="color:var(--paper-2)">close() graceful</th><th style="color:var(--paper-2)">crash / kill -9</th><th style="color:var(--poll)">poll timer expire</th></tr></thead>' +
               '<tbody>' +
-                '<tr><td>dynamic</td><td>Gửi LeaveGroup → rebalance ngay</td><td>Không gửi được gì → chờ session.timeout</td></tr>' +
-                '<tr><td>static</td><td><b style="color:var(--hb)">KHÔNG</b> gửi LeaveGroup → giữ slot</td><td>Không gửi được gì → chờ session.timeout</td></tr>' +
+                '<tr><td>dynamic</td><td>Gửi LeaveGroup → rebalance ngay</td><td>Không gửi được gì → chờ session.timeout</td><td>Gửi LeaveGroup → rebalance ngay</td></tr>' +
+                '<tr><td>static</td><td><b style="color:var(--hb)">KHÔNG</b> gửi → giữ slot</td><td>Không gửi được gì → chờ session.timeout</td><td><b style="color:var(--dead)">KHÔNG</b> gửi → group chờ session.timeout</td></tr>' +
               '</tbody></table>' +
+              '<p class="panel-d" style="font-size:12px;margin-top:8px"><span class="mono">shouldSendLeaveGroupRequest()</span> đòi <span class="mono">isDynamicMember()</span> — nên static member treo poll loop là ô <b>chậm phát hiện nhất</b> bảng này.</p>' +
           '</div>' +
           '<div>' +
             '<div class="panel ch1 accented" style="margin-bottom:10px">' +
               '<p class="panel-t">Channel 1 luôn là safety net</p>' +
               '<p class="panel-d">LeaveGroup chỉ là đường tắt cho graceful shutdown. Crash thì không ai gửi gì — coordinator chỉ phát hiện qua <span class="mono">session.timeout.ms</span>.</p>' +
             '</div>' +
-            '<p class="note" style="font-size:13px">Kafka 4.0 (KIP-1092): <span class="mono">close(CloseOptions)</span> cho static member chọn <span class="mono">LEAVE_GROUP</span> khi scale down thật, không phải restart.</p>' +
+            '<p class="note" style="font-size:12.5px">Kafka 4.0 (KIP-1092): <span class="mono">close(CloseOptions)</span> cho static member chọn <span class="mono">LEAVE_GROUP</span> khi scale down thật, không phải restart.</p>' +
+            '<p class="note" style="font-size:12.5px;margin-top:9px;border-left-color:var(--poll)">Broker chặn <span class="mono">session.timeout.ms</span> bằng <span class="mono">group.min/max.session.timeout.ms</span> — mặc định <b>6s–30 phút</b>, nên 120s hợp lệ. Nhưng dưới <b>KIP-848</b> trần chỉ còn <b>60s</b>, và là broker config.</p>' +
           '</div>' +
         '</div>' +
 

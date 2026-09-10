@@ -46,9 +46,9 @@
         <div class="toc-row" data-goto="2"><span class="num">01</span><span class="col"><span class="ttl">Mở bài</span><span class="dsc">CommitFailedException — process không crash, heartbeat vẫn đều</span></span><span class="meta">1</span></div>
         <div class="toc-row" data-goto="3"><span class="num">02</span><span class="col"><span class="ttl">Hai liveness channel</span><span class="dsc">heartbeat thread vs poll-interval timer — có animation</span></span><span class="meta">2</span></div>
         <div class="toc-row" data-goto="5"><span class="num">03</span><span class="col"><span class="ttl">Poll loop</span><span class="dsc">poll() làm gì ngoài việc trả record — có animation</span></span><span class="meta">1</span></div>
-        <div class="toc-row" data-goto="6"><span class="num">04</span><span class="col"><span class="ttl">Rebalance protocol</span><span class="dsc">eager · cooperative · static membership · KIP-848 — có animation</span></span><span class="meta">4</span></div>
-        <div class="toc-row" data-goto="10"><span class="num">05</span><span class="col"><span class="ttl">Chữa đúng bệnh</span><span class="dsc">pause() / resume() và hai cái bẫy đi kèm — có animation</span></span><span class="meta">2</span></div>
-        <div class="toc-row" data-goto="12"><span class="num">06</span><span class="col"><span class="ttl">Checklist</span><span class="dsc">config tối thiểu, metric phải có, ba câu hỏi chỉnh timeout</span></span><span class="meta">1</span></div>
+        <div class="toc-row" data-goto="6"><span class="num">04</span><span class="col"><span class="ttl">Rebalance protocol</span><span class="dsc">eager · cooperative · static membership · KIP-848 — có animation</span></span><span class="meta">5</span></div>
+        <div class="toc-row" data-goto="11"><span class="num">05</span><span class="col"><span class="ttl">Chữa đúng bệnh</span><span class="dsc">idempotency, pause/resume trong Spring, hai cái bẫy — có animation</span></span><span class="meta">3</span></div>
+        <div class="toc-row" data-goto="14"><span class="num">06</span><span class="col"><span class="ttl">Chẩn đoán &amp; checklist</span><span class="dsc">channel nào đang kêu, config Spring Boot, metric phải có</span></span><span class="meta">2</span></div>
       </div>
       <p class="note" style="margin-top:26px">Slide có biểu tượng điều khiển thì bấm được — các animation chạy theo từng bước, không tự động, để dừng ở đâu cũng nói tiếp được.</p>
     </div>
@@ -111,13 +111,20 @@ too much time message processing.</div>
               <td><span class="m">heartbeat.interval.ms = 3s</span><br><span class="m">session.timeout.ms = 45s</span></td>
               <td><span class="m">max.poll.interval.ms = 300000</span><br><span class="m">(5 phút)</span></td></tr>
           <tr><td>bắt được lỗi</td><td>Crash, kill -9, network partition, GC pause dài</td><td>Deadlock, downstream treo, batch xử lý quá lâu</td></tr>
-          <tr><td>khi vi phạm</td><td>Coordinator kick member ra khỏi group → rebalance</td><td>Consumer tự gửi LeaveGroup → rebalance</td></tr>
+          <tr><td>khi vi phạm</td>
+              <td>Coordinator kick member ra khỏi group → rebalance</td>
+              <td>Consumer tự rời group → <span class="m" style="color:var(--dead)">onPartitionsLost</span><br>
+                  <span style="font-size:13px;color:var(--paper-3)">dynamic member gửi kèm LeaveGroup; static member thì không</span></td></tr>
+          <tr><td>tác dụng phụ</td>
+              <td><span style="color:var(--paper-3)">không có</span></td>
+              <td><span class="m" style="color:var(--poll)">rebalance.timeout.ms = chính nó</span><br>
+                  <span style="font-size:13px;color:var(--paper-3)">mọi rebalance của group đều có thể phải chờ tới ngần này</span></td></tr>
         </tbody>
       </table>
 
       <div class="grid g2" style="margin-top:24px">
         <p class="note" style="border-left-color:var(--hb)">Channel 1 hỏi bạn còn <b>alive</b> không. Channel 2 hỏi bạn còn <b>làm việc</b> không. Kafka cần cả hai, vì một consumer treo ở <span class="mono">synchronized</span> vẫn có heartbeat hoàn hảo.</p>
-        <p class="note" style="border-left-color:var(--paper-3)">Trước Kafka 0.10.1 chỉ có một channel — heartbeat gửi từ trong poll loop. Xử lý chậm đồng nghĩa với chết.</p>
+        <p class="note" style="border-left-color:var(--poll)">Trong Java consumer <b>không cấu hình riêng được</b> <span class="mono">rebalance.timeout.ms</span> — nó <b>bằng</b> <span class="mono">max.poll.interval.ms</span>. Đây là cái giá thật của việc tăng con số đó, và là cơ chế đằng sau &ldquo;một consumer chậm kéo cả group&rdquo;.</p>
       </div>
     </div>
   </section>
@@ -149,6 +156,15 @@ too much time message processing.</div>
     <div class="slide-body" id="fig-coop"></div>
   </section>
 
+  <!-- ============ RACE: EAGER vs COOPERATIVE ============ -->
+  <section class="slide" data-sec="4" data-anim="race" data-toc="Eager vs cooperative">
+    <div class="slide-head">
+      <div class="sec-tag"><b>04</b>REBALANCE PROTOCOL</div>
+      <h1>Cùng một trục thời gian <span class="thin">— cái gì thật sự bị mất</span></h1>
+    </div>
+    <div class="slide-body" id="fig-race"></div>
+  </section>
+
   <!-- ============ 8 · STATIC MEMBERSHIP (ANIM) ============ -->
   <section class="slide" data-sec="4" data-anim="static" data-toc="Static membership">
     <div class="slide-head">
@@ -172,9 +188,56 @@ too much time message processing.</div>
           <tr><td>request</td><td><span class="m">JoinGroup + SyncGroup + Heartbeat</span></td><td>Một request duy nhất: <span class="m">ConsumerGroupHeartbeat</span></td></tr>
           <tr><td>rebalance</td><td>Sự kiện đồng bộ toàn group, theo từng round</td><td>Tăng dần theo mỗi heartbeat; mỗi member hội tụ về target assignment độc lập</td></tr>
           <tr><td>coordinator biết</td><td>Chỉ member list — không biết member nào giữ partition nào</td><td>Giữ current + target assignment và group epoch</td></tr>
+          <tr><td>chỉnh channel 1<br>ở đâu</td>
+              <td><span class="m">session.timeout.ms</span><br><span class="m">heartbeat.interval.ms</span><br><span style="font-size:12.5px;color:var(--paper-3)">client config</span></td>
+              <td><span class="m" style="color:var(--dead)">group.consumer.session.timeout.ms</span><br><span class="m" style="color:var(--dead)">group.consumer.heartbeat.interval.ms</span><br><span style="font-size:12.5px;color:var(--paper-3)">broker config — client bị bỏ qua</span></td></tr>
         </tbody>
       </table>
-      <p class="note" style="margin-top:24px">Cần broker ≥ 4.0 trên KRaft và client ≥ 4.0. Custom assignor phía client không còn dùng được. <b>max.poll.interval.ms vẫn còn</b> — hai liveness channel vẫn nguyên, chỉ khác cách rebalance được thực thi.</p>
+
+      <div class="grid g2" style="margin-top:18px">
+        <p class="note" style="border-left-color:var(--dead)">Wire schema nói thẳng: <span class="mono">ConsumerGroupHeartbeatRequest</span> <b>không có field</b> <span class="mono">SessionTimeoutMs</span> — chỉ có <span class="mono">RebalanceTimeoutMs</span>. Client hết đường tự khai channel 1.</p>
+        <p class="note" style="border-left-color:var(--hb)">Mà <span class="mono">RebalanceTimeoutMs</span> chính là <span class="mono">max.poll.interval.ms</span>. Channel 1 về hẳn broker; <b>channel 2 vẫn là thứ duy nhất bạn tự chịu trách nhiệm</b>.</p>
+      </div>
+      <p class="note" style="margin-top:12px;border-left-color:var(--paper-3);font-size:13px">Cần broker ≥ 4.0 trên KRaft, client ≥ 4.0; custom assignor phía client không dùng được nữa. Và <span class="mono">group.consumer.max.session.timeout.ms</span> mặc định chỉ <b>60s</b> — lời khuyên &ldquo;tăng session timeout lên 2–5 phút cho static membership&rdquo; ở slide trước sẽ hết hợp lệ.</p>
+    </div>
+  </section>
+
+  <!-- ============ IDEMPOTENCY ============ -->
+  <section class="slide" data-sec="5" data-toc="Idempotency là tiền đề">
+    <div class="slide-head">
+      <div class="sec-tag"><b>05</b>CHỮA ĐÚNG BỆNH</div>
+      <h1>Trước khi bàn pause/resume: handler đã idempotent chưa?</h1>
+      <p class="sub">Mọi rebalance đều đồng nghĩa với reprocess. Đây là tiền đề, không phải phần phụ chú.</p>
+    </div>
+    <div class="slide-body">
+      <div class="grid g3" style="margin-bottom:18px">
+        <div class="panel chd accented">
+          <p class="panel-t">Rebalance = reprocess</p>
+          <p class="panel-d">Partition chuyển sang member khác, member đó đọc lại từ offset đã commit. Mọi record xử lý xong nhưng chưa commit sẽ chạy lại.</p>
+        </div>
+        <div class="panel chd accented">
+          <p class="panel-t">Commit sau xử lý = at-least-once</p>
+          <p class="panel-d">Chính cái pattern cả bài đang recommend. Đúng về mất mát, nhưng nó <b>bảo đảm</b> sẽ có duplicate ở ranh giới rebalance.</p>
+        </div>
+        <div class="panel chd accented">
+          <p class="panel-t">Bug đổi hình dạng</p>
+          <p class="panel-d">Nếu handler chưa idempotent, lỗi không hiện ra dưới dạng <span class="mono">CommitFailedException</span> nữa — nó hiện ra dưới dạng dữ liệu sai, và muộn hơn nhiều.</p>
+        </div>
+      </div>
+
+      <div class="grid g2">
+        <div class="panel">
+          <p class="panel-t">Làm gì để idempotent</p>
+          <p class="panel-d" style="margin-top:6px">Khoá nghiệp vụ duy nhất (<span class="mono">orderId</span>, không phải offset) + <span class="mono">INSERT ... ON DUPLICATE KEY</span> hoặc upsert.</p>
+          <p class="panel-d" style="margin-top:4px">Ghi <span class="mono">processed_id</span> vào cùng transaction DB với side effect — không phải bảng riêng.</p>
+          <p class="panel-d" style="margin-top:4px">Side effect ra ngoài (gọi API, gửi mail) cần dedup key phía nhận, hoặc outbox.</p>
+        </div>
+        <div class="panel chd accented">
+          <p class="panel-t">EOS không cứu được pattern này</p>
+          <p class="panel-d" style="margin-top:6px">Transaction Kafka đòi <span class="mono">sendOffsetsToTransaction</span> chạy trên đúng thread điều khiển consumer, trong một transaction bao cả việc xử lý.</p>
+          <p class="panel-d" style="margin-top:4px">Đẩy việc sang thread pool là phá đúng điều kiện đó. <b>Chọn một trong hai:</b> exactly-once trong container thread, hoặc tách thread pool + tự lo idempotency.</p>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -191,69 +254,138 @@ too much time message processing.</div>
   <section class="slide" data-sec="5" data-toc="Hai bẫy khi dùng pause()">
     <div class="slide-head">
       <div class="sec-tag"><b>05</b>CHỮA ĐÚNG BỆNH</div>
-      <h1>Hai cái bẫy khi dùng pause()</h1>
+      <h1>Hai cái bẫy khi tách xử lý ra khỏi container thread</h1>
     </div>
     <div class="slide-body">
       <div class="grid g2">
         <div>
           <div class="panel chd accented">
-            <p class="panel-t">Bẫy 1 — rebalance xoá pause state</p>
-            <p class="panel-d">Partition được assign lại luôn về <span class="mono">paused = false</span>, kể cả khi nhận lại đúng partition cũ.</p>
+            <p class="panel-t">Bẫy 1 — rebalance không chờ worker của bạn</p>
+            <p class="panel-d">Pause state mất khi partition được assign lại là chuyện nhỏ. Chuyện lớn: worker <b>vẫn đang chạy</b> trong khi member khác đã nhận P3 và bắt đầu xử lý từ offset đã commit.</p>
           </div>
-          <ol style="font-size:13.5px;color:var(--paper-2);line-height:1.55;padding-left:20px;margin:14px 0 0">
-            <li>pause(P3), submit batch của P3 vào thread pool.</li>
-            <li>Member khác join → rebalance → nhận lại P3, pause state đã mất.</li>
-            <li>poll() trả record mới của P3 → hai thread cùng xử lý P3, offset lẫn lộn, thứ tự vỡ.</li>
+          <ol style="font-size:13.5px;color:var(--paper-2);line-height:1.5;padding-left:20px;margin:12px 0 0">
+            <li><span class="mono">pausePartition(P3)</span>, submit batch P3 vào pool.</li>
+            <li>Member khác join → rebalance → P3 sang consumer B.</li>
+            <li><b style="color:var(--dead)">Worker của bạn vẫn chạy.</b> B cũng đang xử lý P3 từ offset cũ.</li>
+            <li>Hai process cùng ghi downstream cho cùng message.</li>
           </ol>
-          <div class="panel tight" style="margin-top:14px;border-left:2px solid var(--hb)">
-            <p class="panel-d"><b style="color:var(--hb)">Chữa:</b> trong <span class="mono">onPartitionsAssigned</span> pause lại partition còn việc dở dang; trong <span class="mono">onPartitionsRevoked</span> commit offset đã xử lý xong trước khi mất partition.</p>
+          <div class="panel tight" style="margin-top:12px;border-left:2px solid var(--hb)">
+            <p class="panel-d" style="font-size:13px"><b style="color:var(--hb)">Chữa:</b> trong <span class="mono">onPartitionsRevokedBeforeCommit</span> phải <b>chờ hoặc cancel worker</b> của partition đó rồi mới commit và rejoin — chỉ commit là chưa đủ.</p>
+          </div>
+          <div class="panel tight chd accented" style="margin-top:10px">
+            <p class="panel-d" style="font-size:13px">Khi channel 2 hết hạn hoặc member bị fence thì callback là <span class="mono">onPartitionsLost</span> — <b>đừng commit ở đó</b>, partition đã thuộc người khác nên commit chỉ ném <span class="mono">CommitFailedException</span>.</p>
           </div>
         </div>
         <div>
           <div class="panel chd accented">
-            <p class="panel-t">Bẫy 2 — KafkaConsumer không thread-safe</p>
-            <p class="panel-d">Worker thread gọi <span class="mono">resume()</span> hay <span class="mono">commitSync()</span> → <span class="mono">ConcurrentModificationException</span>, hoặc tệ hơn: race âm thầm trên <span class="mono">SubscriptionState</span>.</p>
+            <p class="panel-t">Bẫy 2 — biết cái gì thread-safe, cái gì không</p>
+            <p class="panel-d">Spring cho phép nhiều thứ mà <span class="mono">KafkaConsumer</span> thuần thì không. Nhầm ranh giới này sinh ra race âm thầm trên <span class="mono">SubscriptionState</span>.</p>
           </div>
-          <div class="panel" style="margin-top:14px">
-            <p class="panel-d">Worker chỉ làm business logic rồi <span class="mono">doneQueue.add(tp)</span>.<br>
-            Mọi thao tác protocol — <span class="mono">poll / pause / resume / commit / seek</span> — độc quyền của main thread.</p>
-          </div>
-          <div class="panel tight" style="margin-top:14px;border-left:2px solid var(--coord)">
-            <p class="panel-d"><b style="color:var(--coord)">Ngoại lệ duy nhất:</b> <span class="mono">wakeup()</span> gọi được từ thread khác — dùng để ngắt <span class="mono">poll()</span> đang block lúc shutdown, không dùng cho pause/resume.</p>
+          <table class="cmp" style="margin-top:12px;font-size:13px">
+            <thead><tr><th></th><th style="color:var(--hb)">Gọi từ worker thread</th></tr></thead>
+            <tbody>
+              <tr><td>container.pausePartition<br>container.resumePartition</td>
+                  <td><b style="color:var(--hb)">An toàn</b> — chỉ add/remove trên <span class="mono">ConcurrentHashMap.newKeySet()</span>, container thread đọc ở poll kế tiếp</td></tr>
+              <tr><td>ack.acknowledge()</td>
+                  <td><b style="color:var(--hb)">An toàn</b> nếu bật <span class="mono">asyncAcks=true</span> (Spring 2.8+) với <span class="mono">MANUAL</span> / <span class="mono">MANUAL_IMMEDIATE</span></td></tr>
+              <tr><td>consumer.pause()<br>consumer.seek()<br>consumer.commitSync()</td>
+                  <td><b style="color:var(--dead)">KHÔNG</b> — lấy raw <span class="mono">Consumer</span> ra khỏi listener rồi gọi từ thread khác → <span class="mono">ConcurrentModificationException</span></td></tr>
+            </tbody>
+          </table>
+          <div class="panel tight" style="margin-top:12px;border-left:2px solid var(--coord)">
+            <p class="panel-d" style="font-size:13px"><b style="color:var(--coord)">Nếu chỉ cần bấy nhiêu:</b> <span class="mono">asyncAcks=true</span> đã tự pause consumer cho tới khi mọi ack hoàn tất. Đọc kỹ trước khi tự viết lại vòng pause/resume bằng tay.</p>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============ 12 · CHECKLIST ============ -->
-  <section class="slide" data-sec="6" data-toc="Config & alert">
+  <!-- ============ BẢNG CHẨN ĐOÁN ============ -->
+  <section class="slide" data-sec="6" data-toc="Channel nào đang kêu?">
     <div class="slide-head">
       <div class="sec-tag"><b>06</b>CHECKLIST</div>
-      <h1>Config &amp; alert tối thiểu</h1>
+      <h1>Channel nào đang kêu?</h1>
+      <p class="sub">Triệu chứng bạn nhìn thấy → cơ chế đằng sau → chỗ cần sửa.</p>
+    </div>
+    <div class="slide-body">
+      <table class="cmp">
+        <thead><tr><th style="width:290px">Triệu chứng</th><th>Thủ phạm</th><th>Sửa ở đâu</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="m">CommitFailedException</span><br><span style="font-size:12.5px;color:var(--paper-3)">heartbeat vẫn đều, process không crash</span></td>
+            <td><b style="color:var(--poll)">Channel 2</b> — poll timer expire, <span class="mono">onPartitionsLost</span></td>
+            <td>Tách xử lý khỏi container thread (pause/resume). <b>Đừng</b> tăng <span class="mono">max.poll.interval.ms</span>.</td>
+          </tr>
+          <tr>
+            <td>Consumer im lặng rồi biến mất<br><span style="font-size:12.5px;color:var(--paper-3)">lag nhảy vọt, log không có gì</span></td>
+            <td><b style="color:var(--hb)">Channel 1</b> — coordinator không nhận heartbeat</td>
+            <td>GC log, network, CPU throttle của pod. <span class="mono">session.timeout.ms</span> phải &gt; GC pause dài nhất.</td>
+          </tr>
+          <tr>
+            <td><span class="m">rebalance-rate-per-hour</span> nhảy<br><span style="font-size:12.5px;color:var(--paper-3)">mỗi lần deploy, rồi lại yên</span></td>
+            <td><b style="color:var(--coord)">Membership churn</b> — không phải liveness</td>
+            <td><span class="mono">group.instance.id</span> + <span class="mono">CooperativeStickyAssignor</span>.</td>
+          </tr>
+          <tr>
+            <td><span class="m">failed-rebalance-rate-per-hour</span> &gt; 0<br><span style="font-size:12.5px;color:var(--paper-3)">rebalance mở ra nhưng không đóng lại được</span></td>
+            <td>Một member không kịp rejoin trong <span class="mono">rebalance.timeout.ms</span></td>
+            <td>Chính là <span class="mono">max.poll.interval.ms</span>. Tìm member chậm nhất, đừng nới trần.</td>
+          </tr>
+          <tr>
+            <td>Duplicate ở downstream<br><span style="font-size:12.5px;color:var(--paper-3)">không có exception nào cả</span></td>
+            <td>Reprocess sau rebalance — hoặc worker chưa dừng khi partition bị revoke</td>
+            <td>Idempotency, và drain worker trong <span class="mono">onPartitionsRevokedBeforeCommit</span>.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin-top:18px">Phân biệt nhanh: <b style="color:var(--hb)">channel 1</b> thì consumer <b>không phản hồi</b>; <b style="color:var(--poll)">channel 2</b> thì consumer <b>khoẻ nhưng bận</b>. Metric tách được hai cái đó là <span class="mono">time-between-poll-max</span> — nó chỉ tăng ở channel 2.</p>
+    </div>
+  </section>
+
+  <!-- ============ 12 · CHECKLIST ============ -->
+  <section class="slide" data-sec="6" data-toc="Config &amp; alert">
+    <div class="slide-head">
+      <div class="sec-tag"><b>06</b>CHECKLIST</div>
+      <h1>Config &amp; alert tối thiểu <span class="thin">— Spring Boot</span></h1>
     </div>
     <div class="slide-body">
       <div class="grid g2" style="align-items:start">
-        <pre class="code">max.poll.records=100               <span class="c"># nhỏ hơn default 500</span>
-max.poll.interval.ms=300000        <span class="c"># &gt; worst-case xử lý 1 batch</span>
-session.timeout.ms=45000           <span class="c"># &gt; GC pause dài nhất</span>
-heartbeat.interval.ms=3000         <span class="c"># &lt;= 1/3 session.timeout</span>
-partition.assignment.strategy=\
-    org.apache.kafka.clients.consumer.<span class="s">CooperativeStickyAssignor</span>
-group.instance.id=${POD_NAME}      <span class="c"># static membership</span>
-enable.auto.commit=false           <span class="c"># commit SAU khi xử lý</span></pre>
         <div>
-          <div class="grid g2" style="gap:10px">
-            <div class="panel tight"><p class="panel-t" style="font-size:13px">consumer lag</p><p class="panel-d" style="font-size:12.5px">theo partition; tăng đơn điệu là có chuyện</p></div>
-            <div class="panel tight"><p class="panel-t" style="font-size:13px">rebalance-rate-per-hour</p><p class="panel-d" style="font-size:12.5px">&gt; 0 kéo dài = rebalance storm</p></div>
-            <div class="panel tight"><p class="panel-t" style="font-size:13px">last-poll-seconds-ago</p><p class="panel-d" style="font-size:12.5px">tiến sát max.poll.interval → sắp bị kick</p></div>
-            <div class="panel tight"><p class="panel-t" style="font-size:13px">commit-latency-avg</p><p class="panel-d" style="font-size:12.5px">commit chậm thường báo trước lag</p></div>
+          <pre class="code" style="font-size:11.5px;line-height:1.55">spring.kafka:
+  consumer:
+    group-id: orders
+    enable-auto-commit: false        <span class="c"># commit SAU khi xử lý</span>
+    max-poll-records: 100            <span class="c"># bound memory, KHÔNG phải</span>
+                                     <span class="c"># cách chữa poll interval</span>
+    heartbeat-interval: 3s
+    properties:                      <span class="c"># không có typed property</span>
+      session.timeout.ms: 45000
+      max.poll.interval.ms: 300000
+      group.instance.id: ${POD_NAME}
+      partition.assignment.strategy: &gt;
+        org.apache.kafka.clients.consumer.<span class="s">CooperativeStickyAssignor</span>
+  listener:
+    ack-mode: MANUAL_IMMEDIATE
+    async-acks: true                 <span class="c"># Spring 2.8+</span></pre>
+          <p class="note" style="font-size:12.5px;margin-top:10px;border-left-color:var(--poll)"><span class="mono">consumer.max-poll-interval</span> chỉ có từ <b>Boot 3.5</b>. Dưới đó bắt buộc dùng <span class="mono">properties.max.poll.interval.ms</span> như trên — dạng này chạy mọi version.</p>
+        </div>
+        <div>
+          <div class="grid g2" style="gap:7px">
+            <div class="panel tight" style="padding:9px 11px"><p class="panel-t" style="font-size:12.5px">consumer lag</p><p class="panel-d" style="font-size:12px">theo partition; tăng đơn điệu là có chuyện</p></div>
+            <div class="panel tight" style="padding:9px 11px"><p class="panel-t" style="font-size:12.5px">time-between-poll-max</p><p class="panel-d" style="font-size:12px">tiến sát max.poll.interval → sắp mất partition</p></div>
+            <div class="panel tight" style="padding:9px 11px"><p class="panel-t" style="font-size:12.5px">failed-rebalance-rate-per-hour</p><p class="panel-d" style="font-size:12px">&gt; 0 = rebalance đang không hoàn tất được</p></div>
+            <div class="panel tight" style="padding:9px 11px"><p class="panel-t" style="font-size:12.5px">last-rebalance-seconds-ago</p><p class="panel-d" style="font-size:12px">reset liên tục = rebalance storm</p></div>
+            <div class="panel tight" style="padding:9px 11px"><p class="panel-t" style="font-size:12.5px">poll-idle-ratio-avg</p><p class="panel-d" style="font-size:12px">gần 0 = container thread dành hết thời gian xử lý</p></div>
+            <div class="panel tight" style="padding:9px 11px"><p class="panel-t" style="font-size:12.5px">rebalance-rate-per-hour</p><p class="panel-d" style="font-size:12px">tăng mỗi lần deploy = membership churn</p></div>
           </div>
-          <div class="panel" style="margin-top:14px">
+          <div class="panel tight" style="margin-top:10px">
             <p class="panel-t">Ba câu hỏi để chỉnh timeout đúng</p>
-            <p class="panel-d" style="margin-top:6px">Worst-case một batch mất bao lâu? → <span class="mono">max.poll.interval.ms</span> phải lớn hơn, hoặc dùng pause().</p>
-            <p class="panel-d" style="margin-top:4px">GC pause dài nhất bao lâu? → <span class="mono">session.timeout.ms</span> phải lớn hơn.</p>
-            <p class="panel-d" style="margin-top:4px">Pod restart mất bao lâu? → nếu dùng static membership, <span class="mono">session.timeout.ms</span> = thời gian đó + biên an toàn, không dài hơn.</p>
+            <p class="panel-d" style="margin-top:5px;font-size:13px">Worst-case một batch mất bao lâu? → dùng pause/resume, <b>đừng</b> tăng <span class="mono">max.poll.interval.ms</span>: nó kéo theo <span class="mono">rebalance.timeout.ms</span>.</p>
+            <p class="panel-d" style="margin-top:4px;font-size:13px">GC pause dài nhất bao lâu? → <span class="mono">session.timeout.ms</span> phải lớn hơn (broker chặn trong 6s–30 phút).</p>
+            <p class="panel-d" style="margin-top:4px;font-size:13px">Pod restart mất bao lâu? → nếu static membership, <span class="mono">session.timeout.ms</span> = thời gian đó + biên, không dài hơn.</p>
+          </div>
+          <div class="panel tight chd accented" style="margin-top:10px">
+            <p class="panel-d" style="font-size:12.5px">Lên <b>Kafka 4.0 + group.protocol=consumer</b>, quá nửa khối config này vô hiệu: <span class="mono">session.timeout.ms</span> và <span class="mono">heartbeat.interval.ms</span> thành broker config. Còn nguyên đúng <span class="mono">max.poll.interval.ms</span>.</p>
           </div>
         </div>
       </div>
@@ -296,6 +428,7 @@ enable.auto.commit=false           <span class="c"># commit SAU khi xử lý</sp
 <script src="js/anim-liveness.js"></script>
 <script src="js/anim-pollloop.js"></script>
 <script src="js/anim-rebalance.js"></script>
+<script src="js/anim-race.js"></script>
 <script src="js/anim-static.js"></script>
 <script src="js/anim-pause.js"></script>
 <script src="js/deck.js"></script>

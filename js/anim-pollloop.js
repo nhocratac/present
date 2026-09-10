@@ -9,9 +9,9 @@
     { l: 'Đảm bảo đã join group',        d: 'JoinGroup / SyncGroup nếu cần',
       n: 'Nếu consumer chưa thuộc group, poll() là nơi nó join. Không gọi poll() thì không bao giờ vào được group.' },
     { l: 'Xử lý rebalance đang chờ',      d: 'gọi ConsumerRebalanceListener',
-      n: 'Đây là điểm quan trọng: <b>rebalance chỉ hoàn tất khi consumer gọi poll()</b>. Một member xử lý 4 phút không poll → cả group chờ nó. Một consumer chậm kéo cả group.' },
-    { l: 'Auto-commit nếu đến hạn',       d: 'commit offset của batch TRƯỚC',
-      n: 'Auto-commit commit offset của batch <b>trước</b>, không phải batch sắp trả về. Xử lý đồng bộ trong loop → at-least-once. Ném vào thread pool rồi poll() ngay → commit record chưa xử lý → mất message khi crash.' },
+      n: 'Đây là điểm quan trọng: <b>rebalance chỉ hoàn tất khi consumer gọi poll()</b>. Group chờ member chậm tới <span class="mono">rebalance.timeout.ms</span> — mà trong Java consumer con số đó <b>chính là</b> <span class="mono">max.poll.interval.ms</span>.' },
+    { l: 'Auto-commit nếu đang bật',      d: 'chỉ khi enable.auto.commit=true',
+      n: 'Chỉ chạy khi <span class="mono">enable.auto.commit=true</span> (checklist cuối bài tắt nó đi). Khi bật, nó commit offset của batch <b>trước</b>, không phải batch sắp trả về. Ném vào thread pool rồi poll() ngay → commit record chưa xử lý → mất message khi crash.' },
     { l: 'Reset timer max.poll.interval', d: 'channel 2 được gia hạn ở đây',
       n: 'Chính bước này là toàn bộ channel 2. Gọi poll() = hứa &ldquo;tôi vẫn đang làm việc&rdquo;. Không gọi = tự nhận mình đã treo.' },
     { l: 'Gửi FetchRequest',              d: 'cho partition chưa có data trong buffer',
@@ -62,8 +62,8 @@
             '</div>' +
             '<div class="grid g2" style="gap:12px">' +
               '<div class="panel tight chd accented">' +
-                '<p class="panel-t">Rebalance chỉ xong khi consumer gọi poll()</p>' +
-                '<p class="panel-d" style="font-size:12.5px">Một member xử lý 4 phút không poll → cả group chờ nó tới <span class="mono">max.poll.interval.ms</span> mới rebalance xong. Một consumer chậm kéo cả group.</p>' +
+                '<p class="panel-t">rebalance.timeout.ms = max.poll.interval.ms</p>' +
+                '<p class="panel-d" style="font-size:12.5px">Java consumer không cho set riêng — <span class="mono">GroupRebalanceConfig</span> gán thẳng. Đặt 15 phút nghĩa là <b>mọi</b> rebalance của group đều có thể phải chờ một member chậm tới 15 phút.</p>' +
               '</div>' +
               '<div class="panel tight">' +
                 '<p class="panel-t">Auto-commit là của batch trước</p>' +

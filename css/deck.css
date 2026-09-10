@@ -393,3 +393,19 @@ table.cmp td .m{font-family:var(--mono);font-size:12.5px;color:var(--paper)}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
 }
+
+/* ---------- shared time axis (eager vs cooperative race) ---------- */
+.tl{
+  position:relative;height:52px;border-radius:2px;overflow:hidden;
+  background:rgba(63,214,196,.10);border:1px solid var(--line-soft);
+}
+.tl-seg{
+  position:absolute;bottom:0;z-index:1;
+  background:rgba(255,95,86,.34);border-left:1px solid rgba(255,95,86,.75);
+  display:flex;align-items:center;justify-content:center;
+}
+.tl-seg span{font-family:var(--mono);font-size:10.5px;color:#ffd0cd;white-space:nowrap}
+.tl-veil{
+  position:absolute;top:0;bottom:0;right:0;left:0;z-index:2;
+  background:var(--ink);border-left:1px solid var(--paper-2);
+}

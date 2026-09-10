@@ -86,6 +86,7 @@
               '<div style="margin-top:10px"><span class="pill" id="lv-pill-client"><span class="dot"></span>chờ</span></div>' +
             '</div>' +
             '<p class="note" style="border-left-color:var(--paper-3);font-size:13px">Heartbeat thread chạy nền, không dính gì tới business logic — đó là lý do nó vẫn đều khi xử lý đã treo.</p>' +
+            '<p class="note" style="border-left-color:var(--dead);font-size:13px;margin-top:10px"><b>Static member là ngoại lệ:</b> <span class="mono">shouldSendLeaveGroupRequest()</span> đòi <span class="mono">isDynamicMember()</span>, nên khi poll timer expire nó <b>không gửi LeaveGroup</b> — chỉ tự reset generation, còn group phải chờ hết <span class="mono">session.timeout.ms</span>.</p>' +
           '</div>' +
         '</div>';
 
@@ -205,10 +206,11 @@
     if (!st.left && !st.kicked && st.vt - st.lastPoll >= MAX_POLL) {
       st.left = true; st.hbAlive = false;
       gPoll.classList.add('over');
-      setPill(pillClient, 'deadp', 'LeaveGroup gửi đi');
+      setPill(pillClient, 'deadp', 'rời group → onPartitionsLost');
       setPill(pillBroker, 'warnp', 'nhận LeaveGroup → rebalance');
-      say('Timer channel 2 vượt <span class="mono">max.poll.interval.ms</span>. Consumer <b class="bad">tự gửi LeaveGroup</b> — coordinator không hề kick. ' +
-          'Partition được assign cho member khác. Khi batch xử lý xong và gọi commit → <span class="mono">CommitFailedException</span>. Đúng dòng log ở đầu bài.');
+      say('Timer channel 2 vượt <span class="mono">max.poll.interval.ms</span>. Consumer <b class="bad">tự rời group</b> — coordinator không hề kick. ' +
+          'Callback được gọi là <b class="bad">onPartitionsLost</b>, không phải <span class="mono">onPartitionsRevoked</span>: partition đã thuộc member khác nên commit trong đó sẽ fail. ' +
+          'Đó chính là <span class="mono">CommitFailedException</span> ở đầu bài.');
       stop();
     }
 
