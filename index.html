@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Consumer Liveness &amp; Rebalance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/deck.css">
+</head>
+<body>
+
+<div id="viewport">
+<div id="stage">
+
+  <!-- persistent section spine -->
+  <nav id="spine" aria-label="Sections">
+    <div class="spine-item" data-sec="1"><span class="n">01</span><span class="t">Mở bài</span></div>
+    <div class="spine-item" data-sec="2"><span class="n">02</span><span class="t">Liveness</span></div>
+    <div class="spine-item" data-sec="3"><span class="n">03</span><span class="t">Poll loop</span></div>
+    <div class="spine-item" data-sec="4"><span class="n">04</span><span class="t">Rebalance</span></div>
+    <div class="spine-item" data-sec="5"><span class="n">05</span><span class="t">Chữa đúng bệnh</span></div>
+    <div class="spine-item" data-sec="6"><span class="n">06</span><span class="t">Checklist</span></div>
+    <div class="spine-foot">T · mục lục</div>
+  </nav>
+
+  <!-- ============ 0 · TITLE ============ -->
+  <section class="slide no-spine" id="s-title" data-sec="0" data-toc="Trang bìa">
+    <svg id="hero-trace" viewBox="0 0 520 720" preserveAspectRatio="none" aria-hidden="true"></svg>
+    <div class="title-kicker">TEAM SHARING · KAFKA CONSUMER</div>
+    <h1 class="title-main">Consumer liveness<em>&amp; rebalance</em></h1>
+    <p class="title-sub">Cái gì thực sự xảy ra khi Kafka nghĩ consumer của bạn đã chết — và vì sao cách chữa phổ biến nhất chỉ chạm tới triệu chứng.</p>
+    <div class="title-meta">Thắng &nbsp;&nbsp;/&nbsp;&nbsp; 09.2026 &nbsp;&nbsp;/&nbsp;&nbsp; ← → để đi, T mở mục lục</div>
+  </section>
+
+  <!-- ============ 1 · TABLE OF CONTENTS ============ -->
+  <section class="slide no-spine" data-sec="0" data-toc="Mục lục">
+    <div class="slide-head">
+      <div class="sec-tag">MỤC LỤC</div>
+      <h1>Sáu chặng, một câu hỏi <span class="thin">— consumer này còn dùng được không?</span></h1>
+    </div>
+    <div class="slide-body">
+      <div class="toc-list">
+        <div class="toc-row" data-goto="2"><span class="num">01</span><span class="col"><span class="ttl">Mở bài</span><span class="dsc">CommitFailedException — process không crash, heartbeat vẫn đều</span></span><span class="meta">1</span></div>
+        <div class="toc-row" data-goto="3"><span class="num">02</span><span class="col"><span class="ttl">Hai liveness channel</span><span class="dsc">heartbeat thread vs poll-interval timer — có animation</span></span><span class="meta">2</span></div>
+        <div class="toc-row" data-goto="5"><span class="num">03</span><span class="col"><span class="ttl">Poll loop</span><span class="dsc">poll() làm gì ngoài việc trả record — có animation</span></span><span class="meta">1</span></div>
+        <div class="toc-row" data-goto="6"><span class="num">04</span><span class="col"><span class="ttl">Rebalance protocol</span><span class="dsc">eager · cooperative · static membership · KIP-848 — có animation</span></span><span class="meta">4</span></div>
+        <div class="toc-row" data-goto="10"><span class="num">05</span><span class="col"><span class="ttl">Chữa đúng bệnh</span><span class="dsc">pause() / resume() và hai cái bẫy đi kèm — có animation</span></span><span class="meta">2</span></div>
+        <div class="toc-row" data-goto="12"><span class="num">06</span><span class="col"><span class="ttl">Checklist</span><span class="dsc">config tối thiểu, metric phải có, ba câu hỏi chỉnh timeout</span></span><span class="meta">1</span></div>
+      </div>
+      <p class="note" style="margin-top:26px">Slide có biểu tượng điều khiển thì bấm được — các animation chạy theo từng bước, không tự động, để dừng ở đâu cũng nói tiếp được.</p>
+    </div>
+  </section>
+
+  <!-- ============ 2 · MỞ BÀI ============ -->
+  <section class="slide" data-sec="1" data-toc="Một dòng log quen thuộc">
+    <div class="slide-head">
+      <div class="sec-tag"><b>01</b>MỞ BÀI</div>
+      <h1>Một dòng log quen thuộc</h1>
+    </div>
+    <div class="slide-body">
+      <div class="logbox"><span class="ex">CommitFailedException</span>: Commit cannot be completed since the group has already
+rebalanced and assigned the partitions to another member. This means that the
+time between subsequent calls to <span class="em">poll()</span> was longer than the configured
+<span class="em">max.poll.interval.ms</span>, which typically implies that the poll loop is spending
+too much time message processing.</div>
+
+      <div class="grid g3" style="margin-top:22px">
+        <div class="panel">
+          <p class="panel-t">Process không crash</p>
+          <p class="panel-d">JVM vẫn chạy, không OOM, không exception ở tầng nghiệp vụ.</p>
+        </div>
+        <div class="panel ch1 accented">
+          <p class="panel-t">Heartbeat vẫn đều</p>
+          <p class="panel-d">Metric <span class="mono">heartbeat-rate</span> bình thường suốt thời gian đó.</p>
+        </div>
+        <div class="panel chd accented">
+          <p class="panel-t">Partition đã bị lấy đi</p>
+          <p class="panel-d">Group coordinator đã assign partition cho member khác.</p>
+        </div>
+      </div>
+
+      <p class="note" style="margin-top:24px">Ba điều này cùng đúng một lúc. Muốn hiểu tại sao, phải thấy Kafka đang đo <b style="color:var(--paper)">hai</b> thứ khác nhau.</p>
+    </div>
+  </section>
+
+  <!-- ============ 3 · HAI LIVENESS CHANNEL (ANIM) ============ -->
+  <section class="slide" data-sec="2" data-anim="liveness" data-toc="Hai liveness channel">
+    <div class="slide-head">
+      <div class="sec-tag"><b>02</b>LIVENESS</div>
+      <h1>Kafka có hai định nghĩa &ldquo;alive&rdquo; độc lập</h1>
+      <p class="sub">Channel 1 hỏi <em>is it alive?</em> — broker kiểm tra. Channel 2 hỏi <em>is it making progress?</em> — client tự giác.</p>
+    </div>
+    <div class="slide-body" id="fig-liveness"></div>
+  </section>
+
+  <!-- ============ 4 · SO SÁNH ============ -->
+  <section class="slide" data-sec="2" data-toc="So sánh hai channel">
+    <div class="slide-head">
+      <div class="sec-tag"><b>02</b>LIVENESS</div>
+      <h1>Hai channel, hai câu hỏi, hai threshold</h1>
+    </div>
+    <div class="slide-body">
+      <table class="cmp">
+        <thead><tr><th></th><th>Channel 1 — heartbeat</th><th>Channel 2 — poll interval</th></tr></thead>
+        <tbody>
+          <tr><td>kiểm tra bởi</td><td>Group coordinator (broker-side)</td><td>Chính consumer (client-side)</td></tr>
+          <tr><td>config</td>
+              <td><span class="m">heartbeat.interval.ms = 3s</span><br><span class="m">session.timeout.ms = 45s</span></td>
+              <td><span class="m">max.poll.interval.ms = 300000</span><br><span class="m">(5 phút)</span></td></tr>
+          <tr><td>bắt được lỗi</td><td>Crash, kill -9, network partition, GC pause dài</td><td>Deadlock, downstream treo, batch xử lý quá lâu</td></tr>
+          <tr><td>khi vi phạm</td><td>Coordinator kick member ra khỏi group → rebalance</td><td>Consumer tự gửi LeaveGroup → rebalance</td></tr>
+        </tbody>
+      </table>
+
+      <div class="grid g2" style="margin-top:24px">
+        <p class="note" style="border-left-color:var(--hb)">Channel 1 hỏi bạn còn <b>alive</b> không. Channel 2 hỏi bạn còn <b>làm việc</b> không. Kafka cần cả hai, vì một consumer treo ở <span class="mono">synchronized</span> vẫn có heartbeat hoàn hảo.</p>
+        <p class="note" style="border-left-color:var(--paper-3)">Trước Kafka 0.10.1 chỉ có một channel — heartbeat gửi từ trong poll loop. Xử lý chậm đồng nghĩa với chết.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5 · POLL LOOP (ANIM) ============ -->
+  <section class="slide" data-sec="3" data-anim="pollloop" data-toc="poll() làm gì">
+    <div class="slide-head">
+      <div class="sec-tag"><b>03</b>POLL LOOP</div>
+      <h1>poll() làm gì ngoài việc lấy record</h1>
+    </div>
+    <div class="slide-body" id="fig-pollloop"></div>
+  </section>
+
+  <!-- ============ 6 · EAGER (ANIM) ============ -->
+  <section class="slide" data-sec="4" data-anim="eager" data-toc="Eager rebalance">
+    <div class="slide-head">
+      <div class="sec-tag"><b>04</b>REBALANCE PROTOCOL</div>
+      <h1>Eager <span class="thin">— mọi member revoke hết, rồi assign lại từ đầu</span></h1>
+    </div>
+    <div class="slide-body" id="fig-eager"></div>
+  </section>
+
+  <!-- ============ 7 · COOPERATIVE (ANIM) ============ -->
+  <section class="slide" data-sec="4" data-anim="coop" data-toc="Cooperative rebalance">
+    <div class="slide-head">
+      <div class="sec-tag"><b>04</b>REBALANCE PROTOCOL</div>
+      <h1>Cooperative <span class="thin">— chỉ revoke partition thực sự phải chuyển (KIP-429)</span></h1>
+    </div>
+    <div class="slide-body" id="fig-coop"></div>
+  </section>
+
+  <!-- ============ 8 · STATIC MEMBERSHIP (ANIM) ============ -->
+  <section class="slide" data-sec="4" data-anim="static" data-toc="Static membership">
+    <div class="slide-head">
+      <div class="sec-tag"><b>04</b>REBALANCE PROTOCOL</div>
+      <h1>Static membership <span class="thin">— restart mà không rebalance (KIP-345)</span></h1>
+    </div>
+    <div class="slide-body" id="fig-static"></div>
+  </section>
+
+  <!-- ============ 9 · KIP-848 ============ -->
+  <section class="slide" data-sec="4" data-toc="KIP-848">
+    <div class="slide-head">
+      <div class="sec-tag"><b>04</b>REBALANCE PROTOCOL</div>
+      <h1>Nhìn về phía trước: KIP-848 <span class="thin">(Kafka 4.0)</span></h1>
+    </div>
+    <div class="slide-body">
+      <table class="cmp">
+        <thead><tr><th></th><th>Classic protocol (≤ 3.x)</th><th>group.protocol=consumer</th></tr></thead>
+        <tbody>
+          <tr><td>chạy assignor</td><td>Client — một consumer làm leader, tự chạy assignor</td><td>Broker — coordinator chạy assignor</td></tr>
+          <tr><td>request</td><td><span class="m">JoinGroup + SyncGroup + Heartbeat</span></td><td>Một request duy nhất: <span class="m">ConsumerGroupHeartbeat</span></td></tr>
+          <tr><td>rebalance</td><td>Sự kiện đồng bộ toàn group, theo từng round</td><td>Tăng dần theo mỗi heartbeat; mỗi member hội tụ về target assignment độc lập</td></tr>
+          <tr><td>coordinator biết</td><td>Chỉ member list — không biết member nào giữ partition nào</td><td>Giữ current + target assignment và group epoch</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin-top:24px">Cần broker ≥ 4.0 trên KRaft và client ≥ 4.0. Custom assignor phía client không còn dùng được. <b>max.poll.interval.ms vẫn còn</b> — hai liveness channel vẫn nguyên, chỉ khác cách rebalance được thực thi.</p>
+    </div>
+  </section>
+
+  <!-- ============ 10 · PAUSE / RESUME (ANIM) ============ -->
+  <section class="slide" data-sec="5" data-anim="pause" data-toc="pause() / resume()">
+    <div class="slide-head">
+      <div class="sec-tag"><b>05</b>CHỮA ĐÚNG BỆNH</div>
+      <h1>Tách xử lý ra khỏi poll loop bằng pause() / resume()</h1>
+    </div>
+    <div class="slide-body" id="fig-pause"></div>
+  </section>
+
+  <!-- ============ 11 · HAI BẪY ============ -->
+  <section class="slide" data-sec="5" data-toc="Hai bẫy khi dùng pause()">
+    <div class="slide-head">
+      <div class="sec-tag"><b>05</b>CHỮA ĐÚNG BỆNH</div>
+      <h1>Hai cái bẫy khi dùng pause()</h1>
+    </div>
+    <div class="slide-body">
+      <div class="grid g2">
+        <div>
+          <div class="panel chd accented">
+            <p class="panel-t">Bẫy 1 — rebalance xoá pause state</p>
+            <p class="panel-d">Partition được assign lại luôn về <span class="mono">paused = false</span>, kể cả khi nhận lại đúng partition cũ.</p>
+          </div>
+          <ol style="font-size:13.5px;color:var(--paper-2);line-height:1.55;padding-left:20px;margin:14px 0 0">
+            <li>pause(P3), submit batch của P3 vào thread pool.</li>
+            <li>Member khác join → rebalance → nhận lại P3, pause state đã mất.</li>
+            <li>poll() trả record mới của P3 → hai thread cùng xử lý P3, offset lẫn lộn, thứ tự vỡ.</li>
+          </ol>
+          <div class="panel tight" style="margin-top:14px;border-left:2px solid var(--hb)">
+            <p class="panel-d"><b style="color:var(--hb)">Chữa:</b> trong <span class="mono">onPartitionsAssigned</span> pause lại partition còn việc dở dang; trong <span class="mono">onPartitionsRevoked</span> commit offset đã xử lý xong trước khi mất partition.</p>
+          </div>
+        </div>
+        <div>
+          <div class="panel chd accented">
+            <p class="panel-t">Bẫy 2 — KafkaConsumer không thread-safe</p>
+            <p class="panel-d">Worker thread gọi <span class="mono">resume()</span> hay <span class="mono">commitSync()</span> → <span class="mono">ConcurrentModificationException</span>, hoặc tệ hơn: race âm thầm trên <span class="mono">SubscriptionState</span>.</p>
+          </div>
+          <div class="panel" style="margin-top:14px">
+            <p class="panel-d">Worker chỉ làm business logic rồi <span class="mono">doneQueue.add(tp)</span>.<br>
+            Mọi thao tác protocol — <span class="mono">poll / pause / resume / commit / seek</span> — độc quyền của main thread.</p>
+          </div>
+          <div class="panel tight" style="margin-top:14px;border-left:2px solid var(--coord)">
+            <p class="panel-d"><b style="color:var(--coord)">Ngoại lệ duy nhất:</b> <span class="mono">wakeup()</span> gọi được từ thread khác — dùng để ngắt <span class="mono">poll()</span> đang block lúc shutdown, không dùng cho pause/resume.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 12 · CHECKLIST ============ -->
+  <section class="slide" data-sec="6" data-toc="Config & alert">
+    <div class="slide-head">
+      <div class="sec-tag"><b>06</b>CHECKLIST</div>
+      <h1>Config &amp; alert tối thiểu</h1>
+    </div>
+    <div class="slide-body">
+      <div class="grid g2" style="align-items:start">
+        <pre class="code">max.poll.records=100               <span class="c"># nhỏ hơn default 500</span>
+max.poll.interval.ms=300000        <span class="c"># &gt; worst-case xử lý 1 batch</span>
+session.timeout.ms=45000           <span class="c"># &gt; GC pause dài nhất</span>
+heartbeat.interval.ms=3000         <span class="c"># &lt;= 1/3 session.timeout</span>
+partition.assignment.strategy=\
+    org.apache.kafka.clients.consumer.<span class="s">CooperativeStickyAssignor</span>
+group.instance.id=${POD_NAME}      <span class="c"># static membership</span>
+enable.auto.commit=false           <span class="c"># commit SAU khi xử lý</span></pre>
+        <div>
+          <div class="grid g2" style="gap:10px">
+            <div class="panel tight"><p class="panel-t" style="font-size:13px">consumer lag</p><p class="panel-d" style="font-size:12.5px">theo partition; tăng đơn điệu là có chuyện</p></div>
+            <div class="panel tight"><p class="panel-t" style="font-size:13px">rebalance-rate-per-hour</p><p class="panel-d" style="font-size:12.5px">&gt; 0 kéo dài = rebalance storm</p></div>
+            <div class="panel tight"><p class="panel-t" style="font-size:13px">last-poll-seconds-ago</p><p class="panel-d" style="font-size:12.5px">tiến sát max.poll.interval → sắp bị kick</p></div>
+            <div class="panel tight"><p class="panel-t" style="font-size:13px">commit-latency-avg</p><p class="panel-d" style="font-size:12.5px">commit chậm thường báo trước lag</p></div>
+          </div>
+          <div class="panel" style="margin-top:14px">
+            <p class="panel-t">Ba câu hỏi để chỉnh timeout đúng</p>
+            <p class="panel-d" style="margin-top:6px">Worst-case một batch mất bao lâu? → <span class="mono">max.poll.interval.ms</span> phải lớn hơn, hoặc dùng pause().</p>
+            <p class="panel-d" style="margin-top:4px">GC pause dài nhất bao lâu? → <span class="mono">session.timeout.ms</span> phải lớn hơn.</p>
+            <p class="panel-d" style="margin-top:4px">Pod restart mất bao lâu? → nếu dùng static membership, <span class="mono">session.timeout.ms</span> = thời gian đó + biên an toàn, không dài hơn.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 13 · KẾT ============ -->
+  <section class="slide no-spine" data-sec="0" style="justify-content:center" data-toc="Kết & Q&A">
+    <div style="display:flex;gap:60px;align-items:center;height:100%">
+      <div style="flex:1 1 auto">
+        <p class="quote">Log đó không phải Kafka lỗi. Nó là Kafka <b>nói đúng</b>: bạn hứa poll mỗi 5 phút, và bạn thất hứa.</p>
+        <p style="margin-top:30px;color:var(--paper-2);font-size:16px;max-width:46ch">Hai liveness channel — biết channel nào đang kêu là biết chữa ở đâu.</p>
+        <p class="title-meta" style="margin-top:34px">Q &amp; A</p>
+      </div>
+      <div style="flex:0 0 300px">
+        <div class="panel ch1 accented" style="margin-bottom:12px">
+          <p class="panel-t">Channel 1 kêu</p>
+          <p class="panel-d">Consumer thật sự không phản hồi. Nhìn GC, network, process.</p>
+        </div>
+        <div class="panel ch2 accented">
+          <p class="panel-t">Channel 2 kêu</p>
+          <p class="panel-d">Consumer sống nhưng không kịp poll. Nhìn thời gian xử lý batch — và pause().</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="progress"><span></span></div>
+  <div id="counter"></div>
+  <div id="hint">← → di chuyển &nbsp;·&nbsp; T mục lục &nbsp;·&nbsp; F toàn màn hình</div>
+</div>
+</div>
+
+<div id="toc-ov">
+  <h2>Mục lục</h2>
+  <p class="hintline">Bấm để nhảy tới slide · Esc hoặc T để đóng</p>
+  <div class="ov-grid" id="ov-grid"></div>
+</div>
+
+<script src="js/anim-liveness.js"></script>
+<script src="js/anim-pollloop.js"></script>
+<script src="js/anim-rebalance.js"></script>
+<script src="js/anim-static.js"></script>
+<script src="js/anim-pause.js"></script>
+<script src="js/deck.js"></script>
+</body>
+</html>
