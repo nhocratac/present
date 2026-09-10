@@ -45,7 +45,7 @@ Rồi mở http://localhost:8000 — hoặc mở thẳng `index.html` bằng bro
 ## Cấu trúc
 
 ```
-index.html          17 slide
+index.html          18 slide
 css/deck.css
 js/deck.js          navigation, spine, mục lục, scaling
 js/anim-liveness.js     slide 4

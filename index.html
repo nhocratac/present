@@ -46,9 +46,9 @@
         <div class="toc-row" data-goto="2"><span class="num">01</span><span class="col"><span class="ttl">Mở bài</span><span class="dsc">CommitFailedException — process không crash, heartbeat vẫn đều</span></span><span class="meta">1</span></div>
         <div class="toc-row" data-goto="3"><span class="num">02</span><span class="col"><span class="ttl">Hai liveness channel</span><span class="dsc">heartbeat thread vs poll-interval timer — có animation</span></span><span class="meta">2</span></div>
         <div class="toc-row" data-goto="5"><span class="num">03</span><span class="col"><span class="ttl">Poll loop</span><span class="dsc">poll() làm gì ngoài việc trả record — có animation</span></span><span class="meta">1</span></div>
-        <div class="toc-row" data-goto="6"><span class="num">04</span><span class="col"><span class="ttl">Rebalance protocol</span><span class="dsc">eager · cooperative · static membership · KIP-848 — có animation</span></span><span class="meta">5</span></div>
-        <div class="toc-row" data-goto="11"><span class="num">05</span><span class="col"><span class="ttl">Chữa đúng bệnh</span><span class="dsc">idempotency, pause/resume trong Spring, hai cái bẫy — có animation</span></span><span class="meta">3</span></div>
-        <div class="toc-row" data-goto="14"><span class="num">06</span><span class="col"><span class="ttl">Chẩn đoán &amp; checklist</span><span class="dsc">channel nào đang kêu, config Spring Boot, metric phải có</span></span><span class="meta">2</span></div>
+        <div class="toc-row" data-goto="6"><span class="num">04</span><span class="col"><span class="ttl">Rebalance protocol</span><span class="dsc">eager · cooperative · migration · static membership · KIP-848</span></span><span class="meta">6</span></div>
+        <div class="toc-row" data-goto="12"><span class="num">05</span><span class="col"><span class="ttl">Chữa đúng bệnh</span><span class="dsc">idempotency, pause/resume trong Spring, hai cái bẫy — có animation</span></span><span class="meta">3</span></div>
+        <div class="toc-row" data-goto="15"><span class="num">06</span><span class="col"><span class="ttl">Chẩn đoán &amp; checklist</span><span class="dsc">channel nào đang kêu, config Spring Boot, metric phải có</span></span><span class="meta">2</span></div>
       </div>
       <p class="note" style="margin-top:26px">Slide có biểu tượng điều khiển thì bấm được — các animation chạy theo từng bước, không tự động, để dừng ở đâu cũng nói tiếp được.</p>
     </div>
@@ -163,6 +163,67 @@ too much time message processing.</div>
       <h1>Cùng một trục thời gian <span class="thin">— cái gì thật sự bị mất</span></h1>
     </div>
     <div class="slide-body" id="fig-race"></div>
+  </section>
+
+  <!-- ============ MIGRATION SANG COOPERATIVE ============ -->
+  <section class="slide" data-sec="4" data-toc="Chuyển sang cooperative">
+    <div class="slide-head" style="margin-bottom:14px">
+      <div class="sec-tag"><b>04</b>REBALANCE PROTOCOL</div>
+      <h1>Chuyển sang cooperative <span class="thin">— sửa gì trong code, deploy thế nào</span></h1>
+    </div>
+    <div class="slide-body">
+      <div class="grid g2">
+
+        <div>
+          <div class="panel chd accented">
+            <p class="panel-t">Callback đổi nghĩa, và không báo cho bạn biết</p>
+            <p class="panel-d">Eager: <span class="mono">onPartitionsRevoked</span> nhận <b>toàn bộ</b> partition đang giữ. Cooperative: chỉ nhận <b>phần dôi ra</b> — <span class="mono">owned − assigned</span>. Cùng một tên hàm, cùng chữ ký, khác ngữ nghĩa.</p>
+          </div>
+
+          <table class="cmp" style="margin-top:10px;font-size:12.5px">
+            <thead><tr><th style="width:96px"></th><th>onPartitionsRevoked nhận cái gì</th></tr></thead>
+            <tbody>
+              <tr><td>eager</td><td><span class="m">assignedPartitions()</span> — <b>toàn bộ</b> partition đang giữ</td></tr>
+              <tr><td>cooperative</td><td><span class="m" style="color:var(--poll)">owned − assigned</span> — chỉ phần thật sự phải nhả</td></tr>
+            </tbody>
+          </table>
+          <p class="note" style="margin-top:10px;font-size:12.5px">Comment trong <span class="mono">ConsumerCoordinator</span> nói thẳng: <span class="mono">// revoke all partitions</span> ở nhánh EAGER, và <span class="mono">// only revoke those partitions that are not in the subscription anymore</span> ở nhánh COOPERATIVE. Log runtime in ra đúng công thức: <span class="mono">Revoked partitions (owned - assigned)</span>.</p>
+        </div>
+
+        <div>
+          <div class="panel chd accented">
+            <p class="panel-t">Code viết cho eager hỏng âm thầm</p>
+            <p class="panel-d" style="font-size:13px">Không exception, không log — state của partition <b>vẫn đang giữ</b> bị xoá oan. Quy tắc: <b style="color:var(--hb)">chỉ thao tác trên collection được truyền vào</b>, đừng suy ra &ldquo;tôi đang mất tất cả&rdquo;.</p>
+          </div>
+          <pre class="code" style="font-size:11.5px;line-height:1.45;margin-top:10px"><span class="c">// SAI sau khi bật cooperative</span>
+void onPartitionsRevoked(Collection&lt;TopicPartition&gt; tps) {
+  cache.clear();       <span class="c">// xoá cả partition còn giữ</span>
+  closeAllWriters();   <span class="c">// đóng cả writer còn dùng</span>
+}
+<span class="c">// ĐÚNG — chỉ đụng đúng phần được truyền vào</span>
+void onPartitionsRevoked(Collection&lt;TopicPartition&gt; tps) {
+  for (TopicPartition tp : tps) {
+    drainWorker(tp);   <span class="c">// chờ worker của RIÊNG tp</span>
+    cache.evict(tp);
+    closeWriter(tp);
+  }
+}</pre>
+        </div>
+      </div>
+
+      <div class="grid g2" style="margin-top:8px">
+        <div class="panel tight">
+          <p class="panel-t">Rolling 2 lần — không đổi thẳng</p>
+          <p class="panel-d" style="font-size:13px;margin-top:6px"><b>Deploy 1:</b> <span class="mono">[RangeAssignor, CooperativeStickyAssignor]</span> — cả group vẫn chạy eager, nhưng mọi member đã <b>biết</b> cooperative.</p>
+          <p class="panel-d" style="font-size:13px;margin-top:4px"><b>Deploy 2:</b> bỏ <span class="mono">RangeAssignor</span> — group nâng protocol. Nhảy thẳng một bước thì member cũ và mới không thoả thuận được protocol chung.</p>
+        </div>
+        <div class="panel tight ch1 accented">
+          <p class="panel-t">Tin tốt: từ Kafka 3.0 bạn đã ở deploy 1</p>
+          <p class="panel-d" style="font-size:13px;margin-top:6px">Default của <span class="mono">partition.assignment.strategy</span> trong <span class="mono">ConsumerConfig</span> là <span class="mono">List.of(RangeAssignor.class, CooperativeStickyAssignor.class)</span> — chính là cặp ở deploy 1.</p>
+          <p class="panel-d" style="font-size:13px;margin-top:4px">Nếu chưa ai set config này thì bạn <b>chỉ còn đúng deploy 2</b>. Nhưng phải sửa callback trước, vì đó là lúc ngữ nghĩa đổi.</p>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ============ 8 · STATIC MEMBERSHIP (ANIM) ============ -->
