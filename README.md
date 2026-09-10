@@ -28,8 +28,12 @@ Bấm nút trên slide, chạy theo từng bước — không tự động, đ�
 | 07 — Eager rebalance | revoke toàn bộ → stop-the-world, `0 / 6` partition còn xử lý |
 | 08 — Cooperative rebalance | chỉ revoke partition phải chuyển, `4 / 2` |
 | 09 — Eager vs cooperative | hai group chạy song song trên cùng trục thời gian: 24.0 vs 9.0 partition-giây bị mất |
-| 10 — Static membership | rolling deploy 20 pod: 40 rebalance vs 0 |
-| 13 — pause / resume | worker chạy 4 phút, container vẫn giữ đúng lời hứa với channel 2 |
+| 11 — Static membership | rolling deploy 20 pod: 40 rebalance vs 0 |
+| 14 — pause / resume | worker chạy 4 phút, container vẫn giữ đúng lời hứa với channel 2 |
+
+Slide tĩnh đáng chú ý: **10 — Chuyển sang cooperative** (`onPartitionsRevoked` đổi
+ngữ nghĩa thành `owned − assigned`, và quy trình rolling 2 lần) và
+**16 — Channel nào đang kêu** (bảng chẩn đoán triệu chứng → cơ chế → chỗ sửa).
 
 Ví dụ code dùng **Spring Kafka** (`@KafkaListener`, `MessageListenerContainer.pausePartition`,
 `AckMode.MANUAL_IMMEDIATE` + `asyncAcks`), không phải Java consumer thuần.
@@ -52,6 +56,6 @@ js/anim-liveness.js     slide 4
 js/anim-pollloop.js     slide 6
 js/anim-rebalance.js    slide 7 + 8
 js/anim-race.js         slide 9
-js/anim-static.js       slide 10
-js/anim-pause.js        slide 13
+js/anim-static.js       slide 11
+js/anim-pause.js        slide 14
 ```
